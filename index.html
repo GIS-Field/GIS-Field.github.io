@@ -3,125 +3,439 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
-    <title></title>
-
+    <title>Water Meters</title>
+	<link rel="stylesheet" type="text/css" href="../dhtmlx/dhtmlxCalendar/codebase/dhtmlxcalendar.css">
+    <link rel="stylesheet" type="text/css" href="../dhtmlx/dhtmlxCalendar/codebase/skins/dhtmlxcalendar_dhx_skyblue.css">
+    <style>
+        	div.dhtmlxcalendar_container { height: 30px;
+        	}
+        	div.dhtmlxcalendar_dates_cont { visibility: hidden;
+        	}
+        	div.dhtmlxcalendar_days_cont { visibility: hidden;
+        	}        	
+    </style>
+    <script src="../dhtmlx/dhtmlxCalendar/codebase/dhtmlxcalendar.js"></script>      
     <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/dojo/dijit/themes/tundra/tundra.css">
     <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/esri/css/esri.css">
+	<link rel="stylesheet" href="http://js.arcgis.com/3.9/js/dijit/themes/claro/claro.css">
     <style>
-      html, body { height: 100%; width: 100%; margin: 0; padding: 0; }
-      #map{ margin: 0; padding: 0; }
-      #dashboard { 
-        background: url("images/gray_transparent.png");
-        color: #fff;
-        font-family: arial;
-        height: auto; 
-        overflow: hidden;
-        padding: 5px;
-        position: absolute;
-        right: 30px;
-        text-align: center;
-        top: 30px;
-        width: 300px;
-        z-index: 40;
-        -moz-box-shadow: 0 0 5px #888;
-        -webkit-box-shadow: 0 0 5px #888;
+      html, body, #map { height: 100%; width: 100%; margin: 0; padding: 0; }
+      h3 { margin: 0 0 5px 0; border-bottom: 1px solid #444; }
+      .shadow {
         box-shadow: 0 0 5px #888;
-        -webkit-border-radius: 4px;
-        -moz-border-radius: 4px;
-        border-radius: 4px;
-        border: 1px solid #fff;
       }
-
-      #dashboardWidgets {
+      #map{ margin: 0; padding: 0; }
+	  #search {
+        display: block;
+        position: absolute;
+        z-index: 2;
+        top: 20px;
+        left: 74px;
+      }
+      #feedback {
         background: #fff;
-        color: #888;
-        margin: 0 auto;
-        text-align: left;
+        color: #444;
+        position: absolute;
+        font-family: arial;
+        height: 440px;
+        right: 30px;
+        margin: 2px;
+        padding: 10px;
+        top: 30px;
+        width: 210px;
+        z-index: 40;
       }
+      #note, #hint { font-size: 80%; }
+      #note { font-weight: 700; padding: 0 0 10px 0; }
+      
     </style>
-
-    <script>var dojoConfig = { parseOnLoad: true };</script>
+	<script src="http://cdnjs.cloudflare.com/ajax/libs/jquery/1.9.0/jquery.min.js"></script>
+	<script src="http://cdnjs.cloudflare.com/ajax/libs/raphael/2.1.0/raphael-min.js"></script>
+	<script src="jquery.sonic-gauge.js"></script>
     <script src="http://js.arcgis.com/3.9/"></script>
     <script>
-      dojo.require("dijit.layout.BorderContainer");
-      dojo.require("dijit.layout.ContentPane");
-      dojo.require("esri.map");
-      dojo.require("esri.layers.FeatureLayer");
-      dojo.require("esri.dijit.Gauge");
+    // the infos object is used to track layer visibility and position
+    var map, usaLayer, infos = {}, geocoder;
+	var f1_loaded, f2_loaded, f3_loaded;
+
+    require([
+      "esri/map", "esri/layers/ArcGISTiledMapServiceLayer","esri/layers/FeatureLayer","esri/lang",
+      "esri/Color", "esri/renderers/SimpleRenderer","esri/dijit/Geocoder",
+      "esri/symbols/SimpleFillSymbol", "esri/symbols/SimpleLineSymbol",
+      "dojo/dom", "dojo/dom-construct", "dojo/dom-style", 
+      "dojo/query", "dojo/on",
+      "dojo/parser", "dojo/_base/array", "dojo/dnd/Source", "dijit/registry",
       
-      var map, gauge;
-      function init() {
-        var ext = new esri.geometry.Extent({"xmin":-11651476,"ymin":3369424,"xmax":372985,"ymax":8251609,"spatialReference":{"wkid":102100}});
-        map = new esri.Map("map",{ 
-          basemap: "oceans",
-          center: [-50.658, 46.188],
-          zoom: 4,
-          slider: false
-        });
+      "dijit/form/Button", "dojo/domReady!"
+    ], function(
+      Map, Tiled, FeatureLayer, esriLang,
+      Color, SimpleRenderer, Geocoder,
+      SimpleFillSymbol, SimpleLineSymbol, 
+      dom, domConstruct, domStyle, 
+      query, on, 
+      parser, arrayUtils, Source, registry
+    ) {
+      parser.parse();
 
+      var dynamicLayerInfos;
+	  var myCalendar;
+      map = new Map("map", {
+        basemap: "topo",
+        center: [-117.47, 34.1],
+        zoom: 14
+      });
+      geocoder = new Geocoder({ 
+          map: map 
+        }, "search");
+        geocoder.startup();
+      //});
+          var tiled = new Tiled("http://tiles.arcgis.com/tiles/XhE4Nx2bBPScQrhF/arcgis/rest/services/landscapeMeter2/MapServer");
+          map.addLayer(tiled);
         // add the states layer as a feature layer
-        var featuresUrl = "http://servicesbeta.esri.com/ArcGIS/rest/services/Hurricanes/Hurricanes/MapServer/0";
-        var fl = new esri.layers.FeatureLayer(featuresUrl, {
-          "id": "hurricanes",
+		var ControlerUrl = "http://services1.arcgis.com/XhE4Nx2bBPScQrhF/arcgis/rest/services/controller/FeatureServer/0";
+		var Controler = new esri.layers.FeatureLayer(ControlerUrl, {
+          "id": "OBJECTID",
           "mode": esri.layers.FeatureLayer.MODE_ONDEMAND, 
-          "outFields": ["OBJECTID", "WINDSPEED", "DAY"]
+          "outFields": ["OBJECTID", "Displayed",]
+        }); 
+        var featuresUrl = "http://services1.arcgis.com/XhE4Nx2bBPScQrhF/arcgis/rest/services/GeoMeter0624/FeatureServer/1";
+        var f1 = new esri.layers.FeatureLayer(featuresUrl, {
+          "id": "MTG_METERNO",
+          "mode": esri.layers.FeatureLayer.MODE_ONDEMAND, 
+          "outFields": ["MTG_METERNO", "Jan2014",]
         });
-        dojo.connect(fl, "onLoad", createGauge);
-        map.addLayer(fl);
-      }
-
-      function createGauge(fl) {
-        // create JSON and pass it to the Gauge ctor
-        var gaugeParams = {
-          "caption": "Hurricane windspeed.",
-          "color": "#c0c",
-          "dataField": "WINDSPEED", // name of the attribute used for the gauge value
-          "dataFormat": "value",
-          "dataLabelField": "EVENTID",
-          "layer": fl,
-          "maxDataValue": 120, // gauge max value, not used when dataFormat is "percentage" 
-          "noFeatureLabel": "No name",
-          "title": "Atlantic Hurricanes(2000)",
-          "unitLabel": " MPH"
-        }
-        gauge = new esri.dijit.Gauge(gaugeParams, "gaugeDiv");
-        gauge.startup();
-
-        // set up mouse over highlighting
-        var hGraphics = new esri.layers.GraphicsLayer({ "id": "highlights" });
-        map.addLayer(hGraphics);
-        
-        var highlight = new esri.symbol.SimpleMarkerSymbol()
-          .setColor(gaugeParams.color).setSize(12);
-
-        dojo.connect(fl, "onMouseOver", function(e) { 
-          hGraphics.clear();
-          hGraphics.add(
-            new esri.Graphic(e.graphic.geometry, highlight)
-          );
+        var featuresUrl2 = "http://services1.arcgis.com/XhE4Nx2bBPScQrhF/arcgis/rest/services/GeoMeter0624/FeatureServer/2";
+        var f2 = new esri.layers.FeatureLayer(featuresUrl2, {
+          "id": "MTG_METERNO",
+          "mode": esri.layers.FeatureLayer.MODE_ONDEMAND, 
+          "outFields": ["MTG_METERNO", "Feb2014",]
         });
-      }
-      dojo.ready(init);
+        var featuresUrl3 = "http://services1.arcgis.com/XhE4Nx2bBPScQrhF/arcgis/rest/services/GeoMeter0624/FeatureServer/3";
+        var f3 = new esri.layers.FeatureLayer(featuresUrl3, {
+          "id": "MTG_METERNO",
+          "mode": esri.layers.FeatureLayer.MODE_ONDEMAND, 
+          "outFields": ["MTG_METERNO", "Jan2014",]
+        });
+        var featuresUrlA = "http://services1.arcgis.com/XhE4Nx2bBPScQrhF/arcgis/rest/services/GeoMeter0624/FeatureServer/0";
+        var fA = new esri.layers.FeatureLayer(featuresUrlA, {
+          "id": "MTG_METERNO",
+          "mode": esri.layers.FeatureLayer.MODE_ONDEMAND, 
+          "outFields": ["MTG_METERNO", "Total",]
+        });
+        //dojo.connect(fl, "onLoad", createGauge);
+		map.addLayer(Controler);
+        map.addLayer(f1);
+		document.getElementById('calendarText').value = "January 2014"
+		f1_loaded = 1;
+		f2_loaded = 0;
+		f3_loaded = 0;
+		fA_loaded = 0;
+		Con_loaded = 1;
+		
+		//map.addLayer(f2);
+		//alert(234);
+		//map.addLayer(f3);
+
+		//f2.visible(true);
+			myCalendar = new dhtmlXCalendarObject("calendarWidget");
+			myCalendar.hideTime();
+			myCalendar.setDate("2014-01-01");
+			myCalendar.show();
+			
+			myCalendar.attachEvent("onChange", function(d){
+				document.getElementById('calendarText').value = myCalendar.getFormatedDate("%F %Y",d);
+				MMYYIn = myCalendar.getFormatedDate("%F %Y",d);
+				switch (MMYYIn) {
+					case "January 2014":
+						ChangeJan();
+						break;
+					case "February 2014":
+						ChangeFeb();
+						break;
+					case "March 2014":
+						ChangeMar();
+						break;
+					default:
+						alert("Day and Year requested is not loaded!");
+					}
+
+			});
+			//myYearCalendar = new dhtmlXCalendarObject("YearcalendarWidget");
+			//myYearCalendar.hideTime();
+			//myYearCalendar.setDate("2014-01-01");
+			//myYearCalendar.show();
+			
+			//myYearCalendar.attachEvent("onChange", function(d){
+			//	document.getElementById('calendarText').value = myYearCalendar.getFormatedDate("%F %Y",d);
+			//	YYIn = myYearCalendar.getFormatedDate("%Y",d);
+			//	switch (YYIn) {
+			//		case "2014":
+			//			ChangeJan();
+			//			break;
+			//		default:
+			//			alert("Year requested is not loaded!");
+			//		}
+
+			//});
+			myCalendar.attachEvent("onArrowClick", function(d_old,d_new){
+				document.getElementById('calendarText').value = myCalendar.getFormatedDate("%F %Y",d_new);	
+				MMYYIn = myCalendar.getFormatedDate("%F %Y",d_new);
+				switch (MMYYIn) {
+					case "January 2014":
+						ChangeJan();
+						break;
+					case "February 2014":
+						ChangeFeb();
+						break;
+					case "March 2014":
+						ChangeMar();
+						break;
+					default:
+						alert("Day and Year requested is not loaded!");
+					}				
+			});			
+		//close the dialog when the mouse leaves the highlight graphic
+        map.on("load", function(){
+          map.graphics.enableMouseEvents();
+        });
+      //
+
+      //function createGauge(fl) {
+            
+ 
+			var Inch = $('#inch').SonicGauge ({
+				diameter: 200,
+				label	: 'T/A Inch',
+				start	: {angle: -225, num: -8.0},
+				end		: {angle: 45, num: 8.0},
+				digital	: false,
+				digital_toFixed	: 3,
+				animation_speed	: 500,
+				markers	: [
+					{
+						gap: 4,
+						line: {"width": 20, "stroke": "none", "fill": "#eeeeee"},
+						text: {"space": 15, "text-anchor": "middle", "fill": "#333333", "font-size": 18}
+					},{
+						gap: 2, 
+						line: {"width": 12, "stroke": "none", "fill": "#aaaaaa"},
+						text: {"space": 13, "text-anchor": "middle", "fill": "#333333", "font-size": 14}
+					},{
+						gap: 1, 
+						line: {"width": 8, "stroke": "none", "fill": "#999999"}
+					}
+				],
+				needles : [{ style: { height: 2} } ],
+				sectors : [
+					{
+						start: -8,
+						end: -0.8,
+						style: {fill: "rgba(0,255,255,.5)", stroke: "blue", "stroke-width": 0}
+					},{
+						start: .8,
+						end: 8,
+						style: {fill: "rgba(255,0,0,.5)", stroke: "red", "stroke-width": 0}
+					},{
+						//start: 10,
+						//end: 20,
+						//radius: 125,
+						//style: {fill: "rgba(50,220,50,.5)", stroke: "cyan", "stroke-width": 0}
+					},{
+						//start: -0.2,
+						//end: 2,
+						//style: {fill: "rgba(250,230,70,.5)", stroke: "yellow", "stroke-width": 0}
+					},{
+						start: -.8,
+						end: .8,
+						style: {fill: "rgba(50,220,50,.5)", stroke: "green", "stroke-width": 0}
+					}
+				],
+				style	: {
+					"outline"	: {"fill": "#dedede", "stroke": "#333", "stroke-width": 2},
+					"center"	: {"fill": "#ae1e1e", "diameter": 8, "stroke": "#590303", "stroke-width": 1},
+					"needle"	: {"fill": "#000"},
+					"label"		: {"fill": "#000", "font-size": 14}
+				}
+			});
+	
+		f1.on("mouse-over", function(evt){
+		  var inc = "${Jan2014:NumberFormat}";
+		  var acct = "${MTG_METERNO:Format}";	
+		  var content_inc = esriLang.substitute(evt.graphic.attributes,inc);
+		  document.getElementById('AcctNumb').value = esriLang.substitute(evt.graphic.attributes,acct);
+		  document.getElementById('actualreading').value = esriLang.substitute(evt.graphic.attributes,inc);
+		  if (content_inc >= 8) {Inch.SonicGauge ('val', parseFloat(8));}
+		  else if (content_inc <= -8) {Inch.SonicGauge ('val', parseFloat(-8));}
+		  else {Inch.SonicGauge ('val', parseFloat(content_inc));}
+		  });
+		f2.on("mouse-over", function(evt){
+		  var inc = "${Feb2014:NumberFormat}";
+		  var acct = "${MTG_METERNO:Format}";
+          document.getElementById('AcctNumb').value = esriLang.substitute(evt.graphic.attributes,acct);		  
+		  var content_inc = esriLang.substitute(evt.graphic.attributes,inc);
+		  document.getElementById('actualreading').value = esriLang.substitute(evt.graphic.attributes,inc);
+		  if (content_inc >= 8) {Inch.SonicGauge ('val', parseFloat(8));}
+		  else if (content_inc <= -8) {Inch.SonicGauge ('val', parseFloat(-8));}
+		  else {Inch.SonicGauge ('val', parseFloat(content_inc));}
+		  });				
+		f3.on("mouse-over", function(evt){
+		  var acct = "${MTG_METERNO:Format}";
+          document.getElementById('AcctNumb').value = esriLang.substitute(evt.graphic.attributes,acct);	
+		  var inc = "${Mar2014:NumberFormat}";		  
+		  var content_inc = esriLang.substitute(evt.graphic.attributes,inc);
+		  //Inch.SonicGauge ('val', parseFloat(content_inc));
+		  document.getElementById('actualreading').value = esriLang.substitute(evt.graphic.attributes,inc);
+		  if (content_inc >= 8) {Inch.SonicGauge ('val', parseFloat(8));}
+		  else if (content_inc <= -8) {Inch.SonicGauge ('val', parseFloat(-8));}
+		  else {Inch.SonicGauge ('val', parseFloat(content_inc));}
+		  });
+		fA.on("mouse-over", function(evt){
+		  var acct = "${MTG_METERNO:Format}";
+          document.getElementById('AcctNumb').value = esriLang.substitute(evt.graphic.attributes,acct);	
+		  var inc = "${Total:NumberFormat}";		  
+		  var content_inc = esriLang.substitute(evt.graphic.attributes,inc);
+		  //Inch.SonicGauge ('val', parseFloat(content_inc));
+		  document.getElementById('actualreading').value = esriLang.substitute(evt.graphic.attributes,inc);
+		  if (content_inc >= 8) {Inch.SonicGauge ('val', parseFloat(8));}
+		  else if (content_inc <= -8) {Inch.SonicGauge ('val', parseFloat(-8));}
+		  else {Inch.SonicGauge ('val', parseFloat(content_inc));}
+		  });
+		registry.byId("ConOnOff").on("click", ChangeCon);
+		function ChangeCon(){
+		if (Con_loaded == 1) { 
+			map.removeLayer(Controler);
+			Con_loaded = 0;
+			}
+		else {
+			map.addLayer(Controler);
+			Con_loaded = 1;
+			if (fA_loaded == 1) { 
+			map.removeLayer(fA);
+			map.addLayer(fA);
+			}
+			if (f1_loaded == 1) { 
+			map.removeLayer(f1);
+			map.addLayer(f1);
+			}
+			if (f2_loaded == 1) { 
+			map.removeLayer(f2);
+			map.addLayer(f2);
+			}
+			if (f3_loaded == 1) { 
+			map.removeLayer(f3);
+			map.addLayer(f3);
+			}
+			}
+		}
+		registry.byId("Avg").on("click", ChangeAvg);
+		function ChangeAvg(){
+		if (fA_loaded == 1) { 
+			map.removeLayer(fA);
+			fA_loaded = 0;
+			}
+		if (f1_loaded == 1) { 
+			map.removeLayer(f1);
+			f1_loaded = 0;
+			}
+		if (f2_loaded == 1) { 
+			map.removeLayer(f2);
+			f2_loaded = 0;
+			}
+		if (f3_loaded == 1) { 
+			map.removeLayer(f3);
+			f3_loaded = 0;
+			}
+		map.addLayer(fA);
+		fA_loaded = 1;
+		document.getElementById('calendarText').value = "Cumulative"
+		}
+		function ChangeJan(){
+		if (fA_loaded == 1) { 
+			map.removeLayer(fA);
+			fA_loaded = 0;
+			}
+		if (f1_loaded == 1) { 
+			map.removeLayer(f1);
+			f1_loaded = 0;
+			}
+		if (f2_loaded == 1) { 
+			map.removeLayer(f2);
+			f2_loaded = 0;
+			}
+		if (f3_loaded == 1) { 
+			map.removeLayer(f3);
+			f3_loaded = 0;
+			}
+		map.addLayer(f1);
+		f1_loaded = 1;
+		}
+		function ChangeFeb(){
+		if (fA_loaded == 1) { 
+			map.removeLayer(fA);
+			fA_loaded = 0;
+			}
+		if (f1_loaded == 1) { 
+			map.removeLayer(f1);
+			f1_loaded = 0;
+			}
+		if (f2_loaded == 1) { 
+			map.removeLayer(f2);
+			f2_loaded = 0;
+			}
+		if (f3_loaded == 1) { 
+			map.removeLayer(f3);
+			f3_loaded = 0;
+			}
+		map.addLayer(f2);
+		f2_loaded = 1;
+		}
+		function ChangeMar(){
+		if (fA_loaded == 1) { 
+			map.removeLayer(fA);
+			fA_loaded = 0;
+			}
+		if (f1_loaded == 1) { 
+			map.removeLayer(f1);
+			f1_loaded = 0;
+			}
+		if (f2_loaded == 1) { 
+			map.removeLayer(f2);
+			f2_loaded = 0;
+			}
+		if (f3_loaded == 1) { 
+			map.removeLayer(f3);
+			f3_loaded = 0;
+			}
+		map.addLayer(f3);
+		f3_loaded = 1;
+		}
+    });
     </script>
   </head>
-  
+
   <body class="tundra">
-    <div data-dojo-type="dijit.layout.BorderContainer" 
-         data-dojo-props="design:'headline',gutters:false" 
-         style="width: 100%; height: 100%; margin: 0;">
-      <div id="map" 
-           data-dojo-type="dijit.layout.ContentPane" 
-           data-dojo-props="region:'center'"> 
-        
-        <div id="dashboard">
-          Dashboard
-          <div id="dashboardWidgets">
-            <div id="gaugeDiv"></div>
+    <div style="width: 100%; height: 100%; margin: 0;">
+      <div id="map">
+		<div id="search"></div>
+        <div id="feedback" class="shadow" align=center>
+          <h3>Meter Water Usage</h3>
+          <div id="info">
+			<div id='inch'  align=middle class="gauge">
+			</div>
+			<input type="text" id="AcctNumb" style="text-align:center;">
+            <input type="text" id="actualreading" style="text-align:center;">			
+			<input type="text" id="calendarText" style="text-align:center;">
+			<p>
+			<button id="Avg"data-dojo-type="dijit/form/Button">Cumulative Usage</button>
+			<button id="ConOnOff"data-dojo-type="dijit/form/Button">Controller</button>
+			<div id="calendarWidget" style="position:relative;">
+			
+			</div>
+			<p>
+
           </div>
         </div>
-
       </div>
     </div>
   </body>
 </html>
-
